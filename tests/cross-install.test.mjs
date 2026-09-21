@@ -48,6 +48,13 @@ const gas = {
   },
   console
 };
+
+/** Data rows on the outreach tab, not counting the header. */
+gas.countRows = () => {
+  // Named by Code.gs rather than repeated here, so the two cannot drift.
+  const tab = sheetTabs[gas.SHEET_NAME];
+  return tab ? Math.max(0, tab._rows().length - 1) : 0;
+};
 vm.createContext(gas);
 vm.runInContext(fs.readFileSync(new URL('../sheets/Code.gs', import.meta.url), 'utf8'), gas);
 

@@ -20,8 +20,8 @@ The sheet is already set up and running. You don't have to create anything — j
 
 | What | Value |
 |---|---|
-| **Link** (Web App URL) | `https://script.google.com/macros/s/AKfycbywiyShG8QKRJQNMBoeOeJdv7s6SAOsmem99L7RTHrUlYaJHKU55rBjcxvVtppC2L59/exec` |
-| **Password** (Shared Token) | `1234` |
+| **Link** (Web App URL) | `https://script.google.com/macros/s/AKfycbwSPmT0IxkHIVLMTNHDCrKEdE9tG20YlO2eYxcROyU15TgB3KfGzJ5xf6T1ZR1WDHND7g/exec` |
+| **Password** (Shared Token) | `1111` |
 
 **Everyone on the team uses these same two values.** That's what makes the list shared — if you pointed at a different sheet, your outreach wouldn't reach anyone else and theirs wouldn't reach you.
 
@@ -39,7 +39,7 @@ Do this once on every computer you use.
    *This is the name teammates see next to people you've messaged. Skip it and you show up as "Team Member".*
 4. Scroll down to **Team Sync**.
 5. Paste the **link** into **Apps Script Web App URL**.
-6. Type the **password** `1234` into **Shared Token**.
+6. Type the **password** `1111` into **Shared Token**.
 7. Tick the **Use the team sheet** checkbox.
 8. Click **Test Connection**.
    - ✅ You should see green text like *"Connected — 14 profiles in the sheet."*
@@ -104,7 +104,7 @@ All of these live in the popup under **Settings → Team Sync**.
 ## If something goes wrong
 
 **It says "Bad or missing token."**
-The password doesn't match. It's `1234` — check for a stray space at the start or end, and make sure nothing else got pasted into the box.
+The password doesn't match. It's `1111` — check for a stray space at the start or end, and make sure nothing else got pasted into the box.
 
 **It says "Got a Google login page instead of data."**
 The link is wrong. Copy it again from [What you need](#what-you-need) — the whole thing, ending in `/exec`.
@@ -165,7 +165,7 @@ This was done once, and the result is the link at the top of this guide. **You d
 1. **Make a spreadsheet** — [sheets.new](https://sheets.new), named "Progsu Outreach". No columns or headings; the script adds those itself.
 2. **Open the script editor** — in the sheet, **Extensions → Apps Script**. A tab opens with a starter `myFunction()`.
 3. **Paste in the code** — select all the starter code, delete it, then copy the whole of [`sheets/Code.gs`](sheets/Code.gs) into the empty box and save (`Ctrl+S`).
-4. **Set the password** — the line near the top reads `var SHARED_TOKEN = '1234';`. That `1234` is the password everyone types into the extension; the two must match exactly.
+4. **Set the password** — the line near the top reads `var SHARED_TOKEN = "1111";`. That `1111` is the password everyone types into the extension; the two must match exactly.
 5. **Publish it** — **Deploy → New deployment**, ⚙️ gear next to "Select type" → **Web app**, then:
 
    | Box | Value |
@@ -181,7 +181,7 @@ This was done once, and the result is the link at the top of this guide. **You d
 8. **Test it** — open this in a browser tab:
 
    ```
-   https://script.google.com/macros/s/AKfycb....../exec?action=ping&token=1234
+   https://script.google.com/macros/s/AKfycb....../exec?action=ping&token=1111
    ```
 
    `{"ok":true,"action":"ping","sheet":"Outreach","rows":0}` means it's live.
@@ -196,12 +196,12 @@ The script is a small JSON API. Every call needs `token`; `GET` (query string) a
 
 | Action | Does | Example |
 |---|---|---|
-| `ping` | Health check and row count | `?action=ping&token=1234` |
-| `list` | Everything, keyed by profile URL. Optional `since` (ISO date) for only-what-changed | `?action=list&token=1234` |
-| `check` | Has one profile been contacted, and by whom | `?action=check&token=1234&profileUrl=https://www.linkedin.com/in/janedoe` |
-| `mark` | Log one profile. First writer wins — a repeat returns `duplicate: true` and leaves the original alone | POST `{"action":"mark","token":"1234","profileUrl":"...","name":"Jane Doe","sentBy":"Sam","templateUsed":"Intro"}` |
-| `bulk` | Log many at once, same first-writer-wins rule per row. Powers **Upload My List** | POST `{"action":"bulk","token":"1234","entries":{"<url>":{"name":"...","sentBy":"..."}}}` |
-| `remove` | Delete a row, unblocking that person for everyone | `?action=remove&token=1234&profileUrl=...` |
+| `ping` | Health check and row count | `?action=ping&token=1111` |
+| `list` | Everything, keyed by profile URL. Optional `since` (ISO date) for only-what-changed | `?action=list&token=1111` |
+| `check` | Has one profile been contacted, and by whom | `?action=check&token=1111&profileUrl=https://www.linkedin.com/in/janedoe` |
+| `mark` | Log one profile. First writer wins — a repeat returns `duplicate: true` and leaves the original alone | POST `{"action":"mark","token":"1111","profileUrl":"...","name":"Jane Doe","sentBy":"Sam","templateUsed":"Intro"}` |
+| `bulk` | Log many at once, same first-writer-wins rule per row. Powers **Upload My List** | POST `{"action":"bulk","token":"1111","entries":{"<url>":{"name":"...","sentBy":"..."}}}` |
+| `remove` | Delete a row, unblocking that person for everyone | `?action=remove&token=1111&profileUrl=...` |
 
 Responses are always JSON with an `ok` flag; failures come back as `{"ok":false,"error":"..."}` with HTTP 200, not an error status.
 
@@ -210,9 +210,9 @@ Writes run under a script lock, so two simultaneous marks produce one row, not t
 Marking someone by hand:
 
 ```bash
-curl -L -X POST "https://script.google.com/macros/s/AKfycbywiyShG8QKRJQNMBoeOeJdv7s6SAOsmem99L7RTHrUlYaJHKU55rBjcxvVtppC2L59/exec" \
+curl -L -X POST "https://script.google.com/macros/s/AKfycbwSPmT0IxkHIVLMTNHDCrKEdE9tG20YlO2eYxcROyU15TgB3KfGzJ5xf6T1ZR1WDHND7g/exec" \
   -H "Content-Type: application/json" \
-  -d '{"action":"mark","token":"1234",
+  -d '{"action":"mark","token":"1111",
        "profileUrl":"https://www.linkedin.com/in/janedoe",
        "name":"Jane Doe","sentBy":"Sam","templateUsed":"Intro"}'
 ```
