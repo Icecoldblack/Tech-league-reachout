@@ -331,7 +331,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let res;
     try {
-      res = await chrome.tabs.sendMessage(tab.id, { type: 'PASTE_TEMPLATE_NOW', template });
+      // With the script in every frame, a plain sendMessage is a broadcast and
+      // the first reply wins — which may be a frame that has no composer at
+      // all. Find the frame that does, then address that one.
+      const frameId = await findComposerFrame(tab.id);
+      res = frameId == null
+        ? await chrome.tabs.sendMessage(tab.id, { type: 'PASTE_TEMPLATE_NOW', template })
+        : await chrome.tabs.sendMessage(tab.id, { type: 'PASTE_TEMPLATE_NOW', template }, { frameId });
     } catch (e) {
       showToast('Reload the LinkedIn tab, then try again');
       return;
@@ -646,13 +652,55 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) { /* not injected yet */ }
 
     try {
-      await chrome.scripting.insertCSS({ target: { tabId }, files: ['content/content.css'] });
-      await chrome.scripting.executeScript({ target: { tabId }, files: ['content/content.js'] });
+      // allFrames so a composer LinkedIn renders inside an iframe is reachable;
+      // the manifest registration matches this, and re-injecting into a frame
+      // that already has the script is harmless.
+      await chrome.scripting.insertCSS({
+        target: { tabId, allFrames: true }, files: ['content/content.css']
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true }, files: ['content/content.js']
+      });
       await new Promise(r => setTimeout(r, 250));
       return true;
     } catch (e) {
       return false;
     }
+  }
+
+  /**
+   * The id of the frame holding a message composer, or null if none says so.
+   * Asked of each frame individually, because a broadcast would return
+   * whichever frame answered first rather than the one that can actually
+   * take the paste.
+   */
+  async function findComposerFrame(tabId) {
+    let frames;
+    try {
+      frames = await chrome.webNavigation.getAllFrames({ tabId });
+    } catch (e) {
+      return null; // no webNavigation permission, or the tab went away
+    }
+    if (!frames || !frames.length) return null;
+
+    const asked = frames.map(async f => {
+      try {
+        const r = await chrome.tabs.sendMessage(
+          tabId, { type: 'HAS_COMPOSER' }, { frameId: f.frameId }
+        );
+        return (r && r.hasComposer) ? f.frameId : null;
+      } catch (e) {
+        return null; // no script in that frame
+      }
+    });
+
+    const results = await Promise.all(asked);
+    // A sub-frame is the interesting answer; the top frame is the default
+    // anyway, so prefer a non-zero id when both claim a composer.
+    const hits = results.filter(id => id != null);
+    if (!hits.length) return null;
+    const sub = hits.find(id => id !== 0);
+    return sub != null ? sub : hits[0];
   }
 
   async function notifyContentScripts(type) {

@@ -1432,6 +1432,16 @@
       return true;
     }
 
+    // Lets the popup address the frame that actually holds a composer,
+    // instead of broadcasting and taking whichever frame replies first.
+    if (msg.type === 'HAS_COMPOSER') {
+      const box = (activeBox && activeBox.isConnected && isVisible(activeBox))
+        ? activeBox
+        : findComposer();
+      sendResponse({ hasComposer: !!box });
+      return true;
+    }
+
     if (msg.type === 'TEMPLATES_UPDATED') {
       loadTemplates().then(() => {
         // Rebuild the toolbar so its dropdown reflects the new template list
@@ -1442,51 +1452,88 @@
     }
 
     if (msg.type === 'PASTE_TEMPLATE_NOW') {
-      const box = (activeBox && activeBox.isConnected) ? activeBox : findComposer();
-      if (!box) {
-        sendResponse({ success: false, error: 'No LinkedIn message box found — open a chat first' });
-        return true;
-      }
-      activeBox = box;
-
       const template = msg.template || currentTemplate();
       if (!template) {
         sendResponse({ success: false, error: 'No template to paste' });
         return true;
       }
 
-      evaluateComposerBlock(box).then(blocked => {
-        if (blocked) {
-          sendResponse({ success: false, error: blockReason(composerBlock.details) });
+      // Waits rather than failing on the spot. Clicking into the chat box
+      // closes the popup, so demanding a composer already be open made the
+      // button impossible to use on any surface where one is not: the click
+      // that would satisfy the check is the click that dismisses the button.
+      // Giving the page a moment also covers a composer LinkedIn is still
+      // rendering when the message arrives.
+      waitForComposer(4000).then(box => {
+        if (!box) {
+          sendResponse({
+            success: false,
+            error: 'No LinkedIn message box found — open a chat, then try again'
+          });
           return;
         }
-
-        // The popup holds focus while it is open, and the native paste path
-        // needs the page focused. Paste now if we can, otherwise when focus
-        // returns.
-        if (document.hasFocus()) {
-          const ok = pasteTemplate(box, template);
-          sendResponse(ok
-            ? { success: true }
-            : { success: false, error: 'LinkedIn blocked the paste — click inside the chat box and retry' });
-          return;
-        }
-
-        let ran = false;
-        const run = () => {
-          if (ran || !box.isConnected) return;
-          ran = true;
-          // The verdict can change while we wait for focus to come back.
-          if (composerBlock.blocked) { pulseBlockOverlay(); return; }
-          pasteTemplate(box, template);
-        };
-        window.addEventListener('focus', () => setTimeout(run, 80), { once: true });
-        setTimeout(run, 2500);
-        sendResponse({ success: true });
+        activeBox = box;
+        pasteWhenReady(box, template, sendResponse);
       });
       return true;
     }
 
     return false;
   });
+
+  /**
+   * Resolves with a composer as soon as one appears, or null once the budget
+   * runs out. Polling rather than a MutationObserver because the composer can
+   * also arrive through a re-render that never mutates a node we watch.
+   */
+  function waitForComposer(budgetMs) {
+    const existing = (activeBox && activeBox.isConnected && isVisible(activeBox))
+      ? activeBox
+      : findComposer();
+    if (existing) return Promise.resolve(existing);
+
+    return new Promise(resolve => {
+      const deadline = Date.now() + budgetMs;
+      const tick = () => {
+        const box = findComposer();
+        if (box) { resolve(box); return; }
+        if (Date.now() >= deadline) { resolve(null); return; }
+        setTimeout(tick, 150);
+      };
+      setTimeout(tick, 150);
+    });
+  }
+
+  /** Shared tail of the paste: block check, then paste now or on focus. */
+  function pasteWhenReady(box, template, sendResponse) {
+    evaluateComposerBlock(box).then(blocked => {
+      if (blocked) {
+        sendResponse({ success: false, error: blockReason(composerBlock.details) });
+        return;
+      }
+
+      // The popup holds focus while it is open, and the native paste path
+      // needs the page focused. Paste now if we can, otherwise when focus
+      // returns.
+      if (document.hasFocus()) {
+        const ok = pasteTemplate(box, template);
+        sendResponse(ok
+          ? { success: true }
+          : { success: false, error: 'LinkedIn blocked the paste — click inside the chat box and retry' });
+        return;
+      }
+
+      let ran = false;
+      const run = () => {
+        if (ran || !box.isConnected) return;
+        ran = true;
+        // The verdict can change while we wait for focus to come back.
+        if (composerBlock.blocked) { pulseBlockOverlay(); return; }
+        pasteTemplate(box, template);
+      };
+      window.addEventListener('focus', () => setTimeout(run, 80), { once: true });
+      setTimeout(run, 2500);
+      sendResponse({ success: true });
+    });
+  }
 })();
