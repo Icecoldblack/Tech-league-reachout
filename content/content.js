@@ -29,7 +29,6 @@
   let toolbar = null;
   let activeBox = null;
   let alreadyContactedBanner = null;
-  let lastAutoPasteKey = '';
   let scanTimer = null;
   let contactedMap = {};
 
@@ -922,11 +921,6 @@
     return { name: name || '', profileUrl: profileUrl || '', company: '' };
   }
 
-  function conversationKey(box) {
-    const r = getRecipient(box);
-    return r.profileUrl || r.name || location.pathname;
-  }
-
   // ============================================================
   // Paste toolbar (floating, so LinkedIn re-renders can't destroy it)
   // ============================================================
@@ -1269,21 +1263,27 @@
     if (!template) return;
     if (!isBoxEmpty(box)) return;
 
-    // Keyed by conversation so a React re-render doesn't re-paste on a loop.
-    // Falls back to the pathname so a failed recipient lookup can't disable it.
-    const key = conversationKey(box) || location.pathname || 'progsu-default';
-    if (key === lastAutoPasteKey) return;
-    lastAutoPasteKey = key;
+    // Keyed by the box element, not by conversation. A conversation key falls
+    // back to the pathname, which does not change while you stay on one
+    // profile — so the first compose box there would auto-paste and every one
+    // after it was skipped until you navigated away. Marking the element
+    // means a new box is always a new chance, and the same box is still never
+    // pasted into twice by a re-render.
+    if (box.dataset.progsuAutopasted === '1') return;
 
-    // Auto-paste is the one path that fires without the user asking, so it
-    // waits for the verdict rather than reading a flag that is still false
-    // because the sheet has not answered yet.
+    // Not marked yet: a box that turns out to be blocked, or that disappears
+    // before the delay is up, must stay eligible. Marking here instead of on
+    // the way in is what lets the user close and reopen a chat and have it
+    // fill again.
     if (await evaluateComposerBlock(box)) return;
+    if (!box.isConnected || !isBoxEmpty(box)) return;
 
     setTimeout(() => {
       if (!box.isConnected || !isBoxEmpty(box)) return;
       // Re-checked on the way out: the verdict can land during the delay.
       if (composerBlock.blocked) return;
+      if (box.dataset.progsuAutopasted === '1') return; // another pass won
+      box.dataset.progsuAutopasted = '1';
       pasteTemplate(box, template);
     }, 600);
   }
@@ -1336,7 +1336,6 @@
     clearComposerBlock();
     profileBlock = { url: '', blocked: false, details: null };
     activeBox = null;
-    lastAutoPasteKey = '';
     currentProfileUrl = '';
     currentProfileName = '';
     currentCompany = '';
