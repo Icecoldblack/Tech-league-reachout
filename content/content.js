@@ -29,6 +29,7 @@
   let toolbar = null;
   let activeBox = null;
   let alreadyContactedBanner = null;
+  let lastAutoPasteKey = '';
   let scanTimer = null;
   let contactedMap = {};
 
@@ -61,20 +62,6 @@
     'div[role="textbox"][contenteditable="true"]'
   ].join(', ');
 
-  // The net of last resort. The list above is keyed to LinkedIn's class names,
-  // so a layout they have renamed — or a compose surface that never used those
-  // names, like the "New message" overlay reached from a profile or the feed —
-  // matches nothing and the paste silently does nothing. Falling back to every
-  // editable on the page keeps this working without knowing their class names;
-  // what makes that safe is that isComposer() still has to clear the candidate
-  // and composerScore() still has to rank it, so the recipient typeahead and
-  // the post/comment editors remain excluded on their own merits.
-  const ANY_EDITABLE_SELECTOR = [
-    'div[contenteditable="true"]',
-    'div[role="textbox"]',
-    'p[contenteditable="true"]'
-  ].join(', ');
-
   // Other rich-text editors on LinkedIn that must never be treated as a chat box.
   // Kept deliberately specific: a broad [class*="typeahead"] rule also matched
   // .msg-connections-typeahead, which WRAPS the real message composer.
@@ -85,24 +72,6 @@
     '[class*="share-creation"]',
     '.comments-comment-box',
     '[class*="comments-comment"]'
-  ].join(', ');
-
-  // Editors the wider net can reach that the class-based list never did.
-  // The recipient field of the "New message" overlay is the dangerous one:
-  // it sits inside the same compose surface as the real box and is focused
-  // when the overlay opens, so it would otherwise win on focus alone and the
-  // template would be typed into the To: field. Matched on the element
-  // itself rather than an ancestor, because .msg-connections-typeahead WRAPS
-  // the real composer — the mistake the note above records.
-  const EXCLUDE_SELF_SELECTOR = [
-    '[class*="typeahead"][contenteditable="true"]',
-    '[role="combobox"]',
-    '[aria-autocomplete]',
-    '[aria-label*="type a name" i]',
-    '[aria-label*="add a recipient" i]',
-    '[data-placeholder*="type a name" i]',
-    '[aria-label*="search" i]',
-    '[data-placeholder*="search" i]'
   ].join(', ');
 
   // ---- Initialization ----
@@ -743,8 +712,6 @@
   function isComposer(el) {
     if (!el || el.getAttribute('contenteditable') !== 'true') return false;
     if (el.closest(EXCLUDE_SELECTOR)) return false;
-    // Self-match, not closest(): see the note on EXCLUDE_SELF_SELECTOR.
-    if (el.matches(EXCLUDE_SELF_SELECTOR)) return false;
 
     const label = [
       el.getAttribute('aria-label'),
@@ -754,8 +721,6 @@
     ].filter(Boolean).join(' ').toLowerCase();
 
     if (label.includes('search')) return false;
-    // "Type a name" / "Add a recipient" is the To: field of a new message.
-    if (label.includes('type a name') || label.includes('recipient')) return false;
     // Anything else that survived the selector list and the exclusions is
     // treated as a candidate; findComposer() ranks them.
     return true;
@@ -770,21 +735,6 @@
     const label = (el.getAttribute('aria-label') || el.getAttribute('data-placeholder') || '').toLowerCase();
     if (label.includes('message') || label.includes('write')) score += 10;
     if (el.closest('.msg-overlay-conversation-bubble--is-minimized')) score -= 40;
-
-    // A message body is a multi-line region; a recipient or search field is a
-    // single-line input. Worth more than focus, because in a freshly opened
-    // "New message" overlay the To: field holds focus while the real box sits
-    // unfocused below it — scoring focus alone would pick the wrong one, and
-    // the template would be typed into the recipient field.
-    const rect = el.getBoundingClientRect();
-    if (rect.height >= 48) score += 120;
-    else if (rect.height <= 28) score -= 60;
-
-    // A send button beside it is strong evidence of a real composer, whatever
-    // the surrounding classes are called.
-    const form = el.closest('form, [class*="msg-form"], [class*="compose"]');
-    if (form && form.querySelector('button[type="submit"], button[class*="send"]')) score += 40;
-
     return score;
   }
 
@@ -803,18 +753,9 @@
   // element that happens to match a selector.
   function findComposer() {
     const candidates = [];
-    const collect = selector => {
-      document.querySelectorAll(selector).forEach(el => {
-        if (isComposer(el) && isVisible(el) && candidates.indexOf(el) === -1) candidates.push(el);
-      });
-    };
-
-    collect(COMPOSER_SELECTOR);
-    // Only when the class-based list found nothing at all, so a layout
-    // LinkedIn has renamed still works. Ordering it second keeps the known
-    // selectors authoritative wherever they do match.
-    if (candidates.length === 0) collect(ANY_EDITABLE_SELECTOR);
-
+    document.querySelectorAll(COMPOSER_SELECTOR).forEach(el => {
+      if (isComposer(el) && isVisible(el) && candidates.indexOf(el) === -1) candidates.push(el);
+    });
     if (candidates.length === 0) return null;
     if (candidates.length === 1) return candidates[0];
 
@@ -919,6 +860,11 @@
     if (!profileUrl) profileUrl = currentProfileUrl;
 
     return { name: name || '', profileUrl: profileUrl || '', company: '' };
+  }
+
+  function conversationKey(box) {
+    const r = getRecipient(box);
+    return r.profileUrl || r.name || location.pathname;
   }
 
   // ============================================================
@@ -1263,27 +1209,21 @@
     if (!template) return;
     if (!isBoxEmpty(box)) return;
 
-    // Keyed by the box element, not by conversation. A conversation key falls
-    // back to the pathname, which does not change while you stay on one
-    // profile — so the first compose box there would auto-paste and every one
-    // after it was skipped until you navigated away. Marking the element
-    // means a new box is always a new chance, and the same box is still never
-    // pasted into twice by a re-render.
-    if (box.dataset.progsuAutopasted === '1') return;
+    // Keyed by conversation so a React re-render doesn't re-paste on a loop.
+    // Falls back to the pathname so a failed recipient lookup can't disable it.
+    const key = conversationKey(box) || location.pathname || 'progsu-default';
+    if (key === lastAutoPasteKey) return;
+    lastAutoPasteKey = key;
 
-    // Not marked yet: a box that turns out to be blocked, or that disappears
-    // before the delay is up, must stay eligible. Marking here instead of on
-    // the way in is what lets the user close and reopen a chat and have it
-    // fill again.
+    // Auto-paste is the one path that fires without the user asking, so it
+    // waits for the verdict rather than reading a flag that is still false
+    // because the sheet has not answered yet.
     if (await evaluateComposerBlock(box)) return;
-    if (!box.isConnected || !isBoxEmpty(box)) return;
 
     setTimeout(() => {
       if (!box.isConnected || !isBoxEmpty(box)) return;
       // Re-checked on the way out: the verdict can land during the delay.
       if (composerBlock.blocked) return;
-      if (box.dataset.progsuAutopasted === '1') return; // another pass won
-      box.dataset.progsuAutopasted = '1';
       pasteTemplate(box, template);
     }, 600);
   }
@@ -1336,6 +1276,7 @@
     clearComposerBlock();
     profileBlock = { url: '', blocked: false, details: null };
     activeBox = null;
+    lastAutoPasteKey = '';
     currentProfileUrl = '';
     currentProfileName = '';
     currentCompany = '';
@@ -1379,29 +1320,17 @@
   window.progsuDebug = function () {
     const all = document.querySelectorAll('div[contenteditable="true"]');
     const matched = document.querySelectorAll(COMPOSER_SELECTOR);
-    // Everything the fallback net can see, so a layout the class-based list
-    // misses still shows up here rather than looking like an empty page.
-    const seen = new Set();
     const candidates = [];
-    const describe = (el, via) => {
-      if (seen.has(el)) return;
-      seen.add(el);
-      const ancestor = el.closest(EXCLUDE_SELECTOR);
+    matched.forEach(el => {
       candidates.push({
-        via: via,
         cls: (el.className || '(none)').toString().slice(0, 60),
         label: el.getAttribute('aria-label') || el.getAttribute('data-placeholder') || '',
-        height: Math.round(el.getBoundingClientRect().height),
         isComposer: isComposer(el),
         visible: isVisible(el),
         score: isComposer(el) && isVisible(el) ? composerScore(el) : null,
-        excludedBy: ancestor ? (ancestor.className || '').toString().slice(0, 40)
-                  : el.matches(EXCLUDE_SELF_SELECTOR) ? 'self: recipient/search field'
-                  : null
+        excludedBy: el.closest(EXCLUDE_SELECTOR) ? (el.closest(EXCLUDE_SELECTOR).className || '').toString().slice(0, 40) : null
       });
-    };
-    matched.forEach(el => describe(el, 'known-selector'));
-    document.querySelectorAll(ANY_EDITABLE_SELECTOR).forEach(el => describe(el, 'fallback-net'));
+    });
     const chosen = findComposer();
     const info = {
       url: location.href,
@@ -1431,16 +1360,6 @@
       return true;
     }
 
-    // Lets the popup address the frame that actually holds a composer,
-    // instead of broadcasting and taking whichever frame replies first.
-    if (msg.type === 'HAS_COMPOSER') {
-      const box = (activeBox && activeBox.isConnected && isVisible(activeBox))
-        ? activeBox
-        : findComposer();
-      sendResponse({ hasComposer: !!box });
-      return true;
-    }
-
     if (msg.type === 'TEMPLATES_UPDATED') {
       loadTemplates().then(() => {
         // Rebuild the toolbar so its dropdown reflects the new template list
@@ -1451,88 +1370,51 @@
     }
 
     if (msg.type === 'PASTE_TEMPLATE_NOW') {
+      const box = (activeBox && activeBox.isConnected) ? activeBox : findComposer();
+      if (!box) {
+        sendResponse({ success: false, error: 'No LinkedIn message box found — open a chat first' });
+        return true;
+      }
+      activeBox = box;
+
       const template = msg.template || currentTemplate();
       if (!template) {
         sendResponse({ success: false, error: 'No template to paste' });
         return true;
       }
 
-      // Waits rather than failing on the spot. Clicking into the chat box
-      // closes the popup, so demanding a composer already be open made the
-      // button impossible to use on any surface where one is not: the click
-      // that would satisfy the check is the click that dismisses the button.
-      // Giving the page a moment also covers a composer LinkedIn is still
-      // rendering when the message arrives.
-      waitForComposer(4000).then(box => {
-        if (!box) {
-          sendResponse({
-            success: false,
-            error: 'No LinkedIn message box found — open a chat, then try again'
-          });
+      evaluateComposerBlock(box).then(blocked => {
+        if (blocked) {
+          sendResponse({ success: false, error: blockReason(composerBlock.details) });
           return;
         }
-        activeBox = box;
-        pasteWhenReady(box, template, sendResponse);
+
+        // The popup holds focus while it is open, and the native paste path
+        // needs the page focused. Paste now if we can, otherwise when focus
+        // returns.
+        if (document.hasFocus()) {
+          const ok = pasteTemplate(box, template);
+          sendResponse(ok
+            ? { success: true }
+            : { success: false, error: 'LinkedIn blocked the paste — click inside the chat box and retry' });
+          return;
+        }
+
+        let ran = false;
+        const run = () => {
+          if (ran || !box.isConnected) return;
+          ran = true;
+          // The verdict can change while we wait for focus to come back.
+          if (composerBlock.blocked) { pulseBlockOverlay(); return; }
+          pasteTemplate(box, template);
+        };
+        window.addEventListener('focus', () => setTimeout(run, 80), { once: true });
+        setTimeout(run, 2500);
+        sendResponse({ success: true });
       });
       return true;
     }
 
     return false;
   });
-
-  /**
-   * Resolves with a composer as soon as one appears, or null once the budget
-   * runs out. Polling rather than a MutationObserver because the composer can
-   * also arrive through a re-render that never mutates a node we watch.
-   */
-  function waitForComposer(budgetMs) {
-    const existing = (activeBox && activeBox.isConnected && isVisible(activeBox))
-      ? activeBox
-      : findComposer();
-    if (existing) return Promise.resolve(existing);
-
-    return new Promise(resolve => {
-      const deadline = Date.now() + budgetMs;
-      const tick = () => {
-        const box = findComposer();
-        if (box) { resolve(box); return; }
-        if (Date.now() >= deadline) { resolve(null); return; }
-        setTimeout(tick, 150);
-      };
-      setTimeout(tick, 150);
-    });
-  }
-
-  /** Shared tail of the paste: block check, then paste now or on focus. */
-  function pasteWhenReady(box, template, sendResponse) {
-    evaluateComposerBlock(box).then(blocked => {
-      if (blocked) {
-        sendResponse({ success: false, error: blockReason(composerBlock.details) });
-        return;
-      }
-
-      // The popup holds focus while it is open, and the native paste path
-      // needs the page focused. Paste now if we can, otherwise when focus
-      // returns.
-      if (document.hasFocus()) {
-        const ok = pasteTemplate(box, template);
-        sendResponse(ok
-          ? { success: true }
-          : { success: false, error: 'LinkedIn blocked the paste — click inside the chat box and retry' });
-        return;
-      }
-
-      let ran = false;
-      const run = () => {
-        if (ran || !box.isConnected) return;
-        ran = true;
-        // The verdict can change while we wait for focus to come back.
-        if (composerBlock.blocked) { pulseBlockOverlay(); return; }
-        pasteTemplate(box, template);
-      };
-      window.addEventListener('focus', () => setTimeout(run, 80), { once: true });
-      setTimeout(run, 2500);
-      sendResponse({ success: true });
-    });
-  }
 })();
