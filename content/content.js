@@ -62,6 +62,20 @@
     'div[role="textbox"][contenteditable="true"]'
   ].join(', ');
 
+  // The net of last resort. The list above is keyed to LinkedIn's class names,
+  // so a layout they have renamed — or a compose surface that never used those
+  // names, like the "New message" overlay reached from a profile or the feed —
+  // matches nothing and the paste silently does nothing. Falling back to every
+  // editable on the page keeps this working without knowing their class names;
+  // what makes that safe is that isComposer() still has to clear the candidate
+  // and composerScore() still has to rank it, so the recipient typeahead and
+  // the post/comment editors remain excluded on their own merits.
+  const ANY_EDITABLE_SELECTOR = [
+    'div[contenteditable="true"]',
+    'div[role="textbox"]',
+    'p[contenteditable="true"]'
+  ].join(', ');
+
   // Other rich-text editors on LinkedIn that must never be treated as a chat box.
   // Kept deliberately specific: a broad [class*="typeahead"] rule also matched
   // .msg-connections-typeahead, which WRAPS the real message composer.
@@ -72,6 +86,24 @@
     '[class*="share-creation"]',
     '.comments-comment-box',
     '[class*="comments-comment"]'
+  ].join(', ');
+
+  // Editors the wider net can reach that the class-based list never did.
+  // The recipient field of the "New message" overlay is the dangerous one:
+  // it sits inside the same compose surface as the real box and is focused
+  // when the overlay opens, so it would otherwise win on focus alone and the
+  // template would be typed into the To: field. Matched on the element
+  // itself rather than an ancestor, because .msg-connections-typeahead WRAPS
+  // the real composer — the mistake the note above records.
+  const EXCLUDE_SELF_SELECTOR = [
+    '[class*="typeahead"][contenteditable="true"]',
+    '[role="combobox"]',
+    '[aria-autocomplete]',
+    '[aria-label*="type a name" i]',
+    '[aria-label*="add a recipient" i]',
+    '[data-placeholder*="type a name" i]',
+    '[aria-label*="search" i]',
+    '[data-placeholder*="search" i]'
   ].join(', ');
 
   // ---- Initialization ----
@@ -712,6 +744,8 @@
   function isComposer(el) {
     if (!el || el.getAttribute('contenteditable') !== 'true') return false;
     if (el.closest(EXCLUDE_SELECTOR)) return false;
+    // Self-match, not closest(): see the note on EXCLUDE_SELF_SELECTOR.
+    if (el.matches(EXCLUDE_SELF_SELECTOR)) return false;
 
     const label = [
       el.getAttribute('aria-label'),
@@ -721,6 +755,8 @@
     ].filter(Boolean).join(' ').toLowerCase();
 
     if (label.includes('search')) return false;
+    // "Type a name" / "Add a recipient" is the To: field of a new message.
+    if (label.includes('type a name') || label.includes('recipient')) return false;
     // Anything else that survived the selector list and the exclusions is
     // treated as a candidate; findComposer() ranks them.
     return true;
@@ -735,6 +771,21 @@
     const label = (el.getAttribute('aria-label') || el.getAttribute('data-placeholder') || '').toLowerCase();
     if (label.includes('message') || label.includes('write')) score += 10;
     if (el.closest('.msg-overlay-conversation-bubble--is-minimized')) score -= 40;
+
+    // A message body is a multi-line region; a recipient or search field is a
+    // single-line input. Worth more than focus, because in a freshly opened
+    // "New message" overlay the To: field holds focus while the real box sits
+    // unfocused below it — scoring focus alone would pick the wrong one, and
+    // the template would be typed into the recipient field.
+    const rect = el.getBoundingClientRect();
+    if (rect.height >= 48) score += 120;
+    else if (rect.height <= 28) score -= 60;
+
+    // A send button beside it is strong evidence of a real composer, whatever
+    // the surrounding classes are called.
+    const form = el.closest('form, [class*="msg-form"], [class*="compose"]');
+    if (form && form.querySelector('button[type="submit"], button[class*="send"]')) score += 40;
+
     return score;
   }
 
@@ -753,9 +804,18 @@
   // element that happens to match a selector.
   function findComposer() {
     const candidates = [];
-    document.querySelectorAll(COMPOSER_SELECTOR).forEach(el => {
-      if (isComposer(el) && isVisible(el) && candidates.indexOf(el) === -1) candidates.push(el);
-    });
+    const collect = selector => {
+      document.querySelectorAll(selector).forEach(el => {
+        if (isComposer(el) && isVisible(el) && candidates.indexOf(el) === -1) candidates.push(el);
+      });
+    };
+
+    collect(COMPOSER_SELECTOR);
+    // Only when the class-based list found nothing at all, so a layout
+    // LinkedIn has renamed still works. Ordering it second keeps the known
+    // selectors authoritative wherever they do match.
+    if (candidates.length === 0) collect(ANY_EDITABLE_SELECTOR);
+
     if (candidates.length === 0) return null;
     if (candidates.length === 1) return candidates[0];
 
@@ -1320,17 +1380,29 @@
   window.progsuDebug = function () {
     const all = document.querySelectorAll('div[contenteditable="true"]');
     const matched = document.querySelectorAll(COMPOSER_SELECTOR);
+    // Everything the fallback net can see, so a layout the class-based list
+    // misses still shows up here rather than looking like an empty page.
+    const seen = new Set();
     const candidates = [];
-    matched.forEach(el => {
+    const describe = (el, via) => {
+      if (seen.has(el)) return;
+      seen.add(el);
+      const ancestor = el.closest(EXCLUDE_SELECTOR);
       candidates.push({
+        via: via,
         cls: (el.className || '(none)').toString().slice(0, 60),
         label: el.getAttribute('aria-label') || el.getAttribute('data-placeholder') || '',
+        height: Math.round(el.getBoundingClientRect().height),
         isComposer: isComposer(el),
         visible: isVisible(el),
         score: isComposer(el) && isVisible(el) ? composerScore(el) : null,
-        excludedBy: el.closest(EXCLUDE_SELECTOR) ? (el.closest(EXCLUDE_SELECTOR).className || '').toString().slice(0, 40) : null
+        excludedBy: ancestor ? (ancestor.className || '').toString().slice(0, 40)
+                  : el.matches(EXCLUDE_SELF_SELECTOR) ? 'self: recipient/search field'
+                  : null
       });
-    });
+    };
+    matched.forEach(el => describe(el, 'known-selector'));
+    document.querySelectorAll(ANY_EDITABLE_SELECTOR).forEach(el => describe(el, 'fallback-net'));
     const chosen = findComposer();
     const info = {
       url: location.href,
