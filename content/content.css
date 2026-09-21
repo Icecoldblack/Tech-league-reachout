@@ -1,0 +1,456 @@
+/* ============================================================
+   Progsu LinkedIn Outreach Assistant — Content Script Styles
+   ============================================================
+   Same design system as the popup: slate surfaces + indigo brand.
+   These styles ride on top of LinkedIn's own CSS, so every rule is
+   scoped to a #progsu-* root and sets its own font/box-sizing.
+
+   Verified contrast:
+     toolbar label   #A5B4FC / #151D2E   8.45:1  (AA 4.5 ✓)
+     toolbar text    #F8FAFC / #151D2E  16.09:1  (AA 4.5 ✓)
+     success flash   #FFFFFF / #047857   5.48:1  (AA 4.5 ✓)
+     error status    #FCA5A5 / #4C1D24   7.33:1  (AA 4.5 ✓)
+     banner title    #92400E / #FDE68A   5.69:1  (AA 4.5 ✓)
+     banner detail   #78350F / #FDE68A   7.28:1  (AA 4.5 ✓)
+     block title     #FFFFFF / #4C0511  15.70:1  (AA 4.5 ✓)
+     block detail    #FECACA / #4C0511  10.86:1  (AA 4.5 ✓)
+     block toast     #FCA5A5 / #151D2E   8.87:1  (AA 4.5 ✓)
+   ============================================================ */
+
+#progsu-paste-toolbar,
+#progsu-contacted-banner,
+#progsu-block-overlay,
+#progsu-block-toast {
+  --progsu-bg:       #0F172A;
+  --progsu-surface:  #151D2E;
+  --progsu-raised:   #1B2336;
+  --progsu-text:     #F8FAFC;
+  --progsu-muted:    #94A3B8;
+  --progsu-brand:    #4F46E5;
+  --progsu-brand-hi: #4338CA;
+  --progsu-light:    #A5B4FC;
+  --progsu-ring:     #818CF8;
+  --progsu-divider:  #273449;
+  --progsu-border:   #64748B;
+  --progsu-success:  #047857;
+
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI Variable Text',
+               'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#progsu-paste-toolbar *,
+#progsu-contacted-banner *,
+#progsu-block-overlay *,
+#progsu-block-toast * {
+  box-sizing: border-box;
+}
+
+/* ============================================================
+   "Already Contacted" banner — sits on LinkedIn's light page
+   ============================================================ */
+#progsu-contacted-banner {
+  position: relative;
+  z-index: 9999;
+  animation: progsu-slide-down 200ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+.progsu-banner-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #FDE68A;
+  border-bottom: 2px solid #B45309;
+  color: #92400E;
+}
+
+.progsu-banner-icon {
+  display: flex;
+  flex-shrink: 0;
+  color: #B45309;
+}
+
+.progsu-banner-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.progsu-banner-text strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #92400E;
+}
+
+.progsu-banner-text span {
+  font-size: 12px;
+  color: #78350F;   /* was #A16207 — 3.95:1, below AA */
+}
+
+.progsu-banner-dismiss {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #92400E;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.progsu-banner-dismiss:hover { background: rgba(146, 64, 14, 0.15); }
+
+.progsu-banner-dismiss:focus-visible {
+  outline: 2px solid #92400E;
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   Paste toolbar
+   ------------------------------------------------------------
+   Floats above the composer on <body> rather than sitting inside
+   LinkedIn's message form, so a React re-render of the form can't
+   tear it out. Coordinates are set from JS (positionToolbar).
+   ============================================================ */
+#progsu-paste-toolbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483000;
+  animation: progsu-fade-in 200ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+.progsu-toolbar-inner {
+  display: flex;
+  align-items: center;
+  /* wrap the row before crushing the template name — in a narrow chat bubble
+     the buttons move to a second line instead of squeezing the select */
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  background: var(--progsu-surface);
+  border: 1px solid var(--progsu-divider);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.45);
+}
+
+.progsu-toolbar-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding-left: 4px;
+  color: var(--progsu-light);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.progsu-toolbar-label svg { flex-shrink: 0; }
+
+.progsu-template-select {
+  /* keeps enough room to actually read a template name */
+  flex: 1 1 132px;
+  min-width: 132px;
+  height: 32px;
+  margin: 0;
+  padding: 0 8px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--progsu-bg);
+  border: 1px solid var(--progsu-border);
+  border-radius: 6px;
+  color: var(--progsu-text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.progsu-template-select:hover { border-color: var(--progsu-ring); }
+
+.progsu-template-select option {
+  background: var(--progsu-raised);
+  color: var(--progsu-text);
+}
+
+.progsu-paste-btn,
+.progsu-mark-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 32px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.progsu-paste-btn svg,
+.progsu-mark-btn svg { flex-shrink: 0; }
+
+/* Primary action on this surface */
+.progsu-paste-btn {
+  background: var(--progsu-brand);
+  color: #FFFFFF;
+}
+
+.progsu-paste-btn:hover { background: var(--progsu-brand-hi); }
+
+/* Secondary action — subordinate to the primary CTA */
+.progsu-mark-btn {
+  background: var(--progsu-raised);
+  border-color: var(--progsu-divider);
+  color: var(--progsu-text);
+}
+
+.progsu-mark-btn:hover { border-color: var(--progsu-border); }
+
+.progsu-paste-btn:disabled,
+.progsu-mark-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.progsu-paste-btn:focus-visible,
+.progsu-mark-btn:focus-visible,
+.progsu-template-select:focus-visible {
+  outline: 2px solid var(--progsu-ring);
+  outline-offset: 2px;
+}
+
+/* Confirmation state — carries an icon/label change, not colour alone */
+.progsu-btn-success {
+  background: var(--progsu-success) !important;
+  border-color: var(--progsu-success) !important;
+  color: #FFFFFF !important;
+}
+
+/* Inline feedback: paste failures and "already contacted" warnings */
+.progsu-toolbar-status {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: var(--progsu-surface);
+  border: 1px solid var(--progsu-divider);
+  border-radius: 8px;
+  color: var(--progsu-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.45);
+}
+
+.progsu-toolbar-status[hidden] { display: none; }
+
+.progsu-status-warn {
+  background: #422006;
+  border-color: #B45309;
+  color: #FDE68A;
+}
+
+.progsu-status-error {
+  background: #4C1D24;
+  border-color: #B91C1C;
+  color: #FCA5A5;
+}
+
+/* ============================================================
+   Contact marker — pill appended to profile links in lists
+   ============================================================
+   Rides inside LinkedIn's own <a>, on their light page. Reuses the
+   banner's amber so "already contacted" reads the same everywhere.
+
+   display:inline-flex is load-bearing twice over: it stops the parent
+   link's hover underline from being drawn through the pill, and it keeps
+   the pill on the name's baseline inside LinkedIn's flex rows.
+   ============================================================ */
+.progsu-contact-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid #B45309;
+  border-radius: 10px;
+  background: #FDE68A;
+  color: #92400E;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI Variable Text',
+               'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  vertical-align: middle;
+  text-decoration: none;
+  cursor: inherit;
+  animation: progsu-fade-in 160ms ease-out;
+}
+
+.progsu-contact-marker * {
+  box-sizing: border-box;
+}
+
+.progsu-contact-marker svg {
+  flex: 0 0 auto;
+  display: block;
+}
+
+/* ============================================================
+   Duplicate-outreach block
+   ============================================================
+   The overlay is laid over LinkedIn's message form (coordinates from
+   positionBlockOverlay) and deliberately opaque enough to read as
+   "this is closed" rather than "this is dimmed". It also swallows the
+   pointer events the form would have received, which is half of what
+   stops a click on Send — the keyboard guards in content.js are the
+   other half.
+   ============================================================ */
+#progsu-block-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* One below the toolbar: the toolbar has to stay clickable so the user
+     can still switch templates and see why they are blocked. */
+  z-index: 2147482999;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  overflow: hidden;
+  background: rgba(76, 5, 17, 0.94);
+  border: 2px solid #B91C1C;
+  border-radius: 8px;
+  cursor: not-allowed;
+  animation: progsu-fade-in 160ms ease-out;
+}
+
+.progsu-block-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #FFFFFF;
+}
+
+.progsu-block-card svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #FCA5A5;
+}
+
+.progsu-block-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.progsu-block-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+
+.progsu-block-text span {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #FECACA;
+}
+
+/* Fires on every refused keystroke or click — without it a blocked box is
+   indistinguishable from a frozen page. */
+.progsu-block-pulse {
+  animation: progsu-block-pulse 320ms ease-out;
+}
+
+/* ============================================================
+   Block toast — for refusals away from the composer, where there
+   is no overlay on screen to pulse (a Message button in a list).
+   ============================================================ */
+#progsu-block-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483001;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 380px;
+  padding: 12px 16px;
+  background: var(--progsu-surface);
+  border: 1px solid #B91C1C;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  color: #FCA5A5;
+  font-size: 13px;
+  line-height: 1.45;
+
+  /* Kept in the DOM between showings so the timer has something to hide;
+     visibility (not display) so the transition can run. */
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px);
+  transition: opacity 180ms ease-out, transform 180ms ease-out, visibility 0s linear 180ms;
+}
+
+#progsu-block-toast.progsu-toast-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity 180ms ease-out, transform 180ms ease-out, visibility 0s;
+}
+
+#progsu-block-toast svg {
+  flex: 0 0 auto;
+}
+
+/* ============================================================
+   Motion
+   ============================================================ */
+@keyframes progsu-block-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.65); }
+  100% { box-shadow: 0 0 0 10px rgba(248, 113, 113, 0); }
+}
+
+@keyframes progsu-slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes progsu-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #progsu-paste-toolbar,
+  #progsu-contacted-banner,
+  #progsu-block-overlay,
+  #progsu-block-toast,
+  .progsu-contact-marker,
+  #progsu-paste-toolbar *,
+  #progsu-contacted-banner *,
+  #progsu-block-overlay * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
